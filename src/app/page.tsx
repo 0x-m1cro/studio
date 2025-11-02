@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket } from 'lucide-react';
+import { FileText, Rocket, Upload } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
@@ -33,7 +33,7 @@ export default function ContentQaPage() {
 
   React.useEffect(() => {
     setTempGuidelines(brandGuidelines);
-  }, [brandGuidelines]);
+  }, [brandGuidelines, isDrawerOpen]);
 
   const handleRunAudit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -82,6 +82,33 @@ export default function ContentQaPage() {
       title: 'Guidelines Saved',
       description: 'Your brand guidelines have been updated.',
     });
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.type === 'text/plain') {
+      const text = await file.text();
+      setTempGuidelines(text);
+      toast({
+        title: 'File Content Loaded',
+        description: 'The content of the .txt file has been loaded into the guidelines.',
+      });
+    } else if (file.type === 'application/pdf') {
+      setTempGuidelines(`This is a PDF file named ${file.name}. PDF text extraction is not implemented yet.`);
+      toast({
+        variant: 'destructive',
+        title: 'PDF Uploaded',
+        description: 'PDF parsing is not yet supported. The file name has been added as a placeholder.',
+      });
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Unsupported File Type',
+        description: 'Please upload a .txt or .pdf file.',
+      });
+    }
   };
 
   return (
@@ -140,13 +167,31 @@ export default function ContentQaPage() {
           <SheetHeader>
             <SheetTitle className="text-2xl">Brand Guidelines</SheetTitle>
             <SheetDescription>
-              Provide your brand guidelines here. The AI will use this as a source of truth for its content audit. Be as detailed as possible.
+              Provide your brand guidelines here. You can either type them in, or upload a .txt or .pdf file. The AI will use this as a source of truth for its content audit. Be as detailed as possible.
             </SheetDescription>
           </SheetHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-4">
+             <div>
+                <Label htmlFor="guideline-file" className="mb-2 block">Upload File (TXT, PDF)</Label>
+                <div className="relative">
+                    <Input
+                        id="guideline-file"
+                        type="file"
+                        accept=".txt,.pdf"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={handleFileChange}
+                    />
+                    <Button variant="outline" asChild className="cursor-pointer w-full">
+                        <div>
+                            <Upload className="mr-2" />
+                            <span>Click to upload a file</span>
+                        </div>
+                    </Button>
+                </div>
+            </div>
             <Textarea
               placeholder="e.g., Tone of voice should be professional yet approachable. Avoid using jargon. Our company name is 'Example Inc.', not 'example inc'..."
-              className="min-h-[calc(100vh-15rem)]"
+              className="min-h-[calc(100vh-20rem)]"
               value={tempGuidelines}
               onChange={(e) => setTempGuidelines(e.target.value)}
             />
