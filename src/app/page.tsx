@@ -12,6 +12,10 @@ import { FileText, Rocket, Upload } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
+import * as pdfjs from 'pdfjs-dist';
+
+// Required for pdfjs-dist
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type AuditState = {
   isLoading: boolean;
@@ -96,12 +100,31 @@ export default function ContentQaPage() {
         description: 'The content of the .txt file has been loaded into the guidelines.',
       });
     } else if (file.type === 'application/pdf') {
-      setTempGuidelines(`This is a PDF file named ${file.name}. PDF text extraction is not implemented yet.`);
-      toast({
-        variant: 'destructive',
-        title: 'PDF Uploaded',
-        description: 'PDF parsing is not yet supported. The file name has been added as a placeholder.',
-      });
+       try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjs.getDocument(arrayBuffer).promise;
+        const numPages = pdf.numPages;
+        let pdfText = '';
+
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          pdfText += textContent.items.map(item => ('str' in item ? item.str : '')).join(' ');
+        }
+        
+        setTempGuidelines(pdfText);
+        toast({
+          title: 'PDF Content Extracted',
+          description: 'The text content of the PDF has been loaded into the guidelines.',
+        });
+      } catch (error) {
+        console.error('Error parsing PDF:', error);
+        toast({
+          variant: 'destructive',
+          title: 'PDF Parsing Failed',
+          description: error instanceof Error ? error.message : 'Could not parse the PDF file.',
+        });
+      }
     } else {
       toast({
         variant: 'destructive',
@@ -109,6 +132,8 @@ export default function ContentQaPage() {
         description: 'Please upload a .txt or .pdf file.',
       });
     }
+     // Reset file input
+    event.target.value = '';
   };
 
   return (
