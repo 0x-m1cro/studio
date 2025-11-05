@@ -6,6 +6,7 @@ import { z } from 'zod';
 const AuditInputSchema = z.object({
   brandGuidelines: z.string().min(1, 'Brand guidelines are required.'),
   urls: z.string().min(1, 'At least one URL is required.'),
+  apiKey: z.string().optional(),
 });
 
 export type AuditResult = {
@@ -32,7 +33,12 @@ async function fetchWebsiteContent(url: string): Promise<string> {
 
     const html = await response.text();
     // A very basic way to extract text. This will not work well for complex sites.
-    const text = html
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/);
+    if (!bodyMatch) {
+       return '';
+    }
+
+    const text = bodyMatch[1]
       .replace(/<style[^>]*>.*<\/style>/gis, '')
       .replace(/<script[^>]*>.*<\/script>/gis, '')
       .replace(/<nav[^>]*>.*<\/nav>/gis, '')
@@ -59,7 +65,16 @@ export async function runAudits(values: z.infer<typeof AuditInputSchema>): Promi
     return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
   }
 
-  const { brandGuidelines, urls } = validation.data;
+  const { brandGuidelines, urls, apiKey } = validation.data;
+
+  if (apiKey) {
+    process.env.GEMINI_API_KEY = apiKey;
+  }
+  
+  if (!process.env.GEMINI_API_KEY) {
+     return { success: false, error: "Gemini API key is not set. Please provide it." };
+  }
+
   const urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
     try {
         const fullUrl = url.startsWith('http') ? url : `https://${url}`;

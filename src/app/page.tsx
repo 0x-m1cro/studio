@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
@@ -27,6 +27,7 @@ export default function ContentQaPage() {
   const [brandGuidelines, setBrandGuidelines] = React.useState('');
   const [tempGuidelines, setTempGuidelines] = React.useState('');
   const [urls, setUrls] = React.useState('');
+  const [apiKey, setApiKey] = React.useState('');
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
   const [auditState, setAuditState] = React.useState<AuditState>({
     isLoading: false,
@@ -58,10 +59,18 @@ export default function ContentQaPage() {
       });
       return;
     }
+    if (!apiKey.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Missing API Key',
+        description: 'Please enter your Gemini API key.',
+      });
+      return;
+    }
 
     setAuditState({ isLoading: true, results: [], error: null });
 
-    const response = await runAudits({ brandGuidelines, urls });
+    const response = await runAudits({ brandGuidelines, urls, apiKey });
 
     if (response.success && response.results) {
       setAuditState({ isLoading: false, results: response.results, error: null });
@@ -158,6 +167,21 @@ export default function ContentQaPage() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleRunAudit} className="space-y-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="api-key">Gemini API Key</Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="api-key"
+                        type="password"
+                        placeholder="Enter your Gemini API key"
+                        className="pl-10"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        disabled={auditState.isLoading}
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="urls">URLs to Audit</Label>
                     <Textarea
