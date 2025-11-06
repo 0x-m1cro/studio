@@ -26,14 +26,17 @@ const AnalyzeContentComplianceOutputSchema = z.object({
   complianceScore: z
     .number()
     .describe(
-      'A score indicating the compliance of the website content with the brand guidelines.'
+      'A score from 0-100 indicating the compliance of the website content with the brand guidelines.'
     ),
   flaggedIssues: z
     .array(z.string())
-    .describe('A list of issues found in the website content.'),
+    .describe('A list of specific snippets or phrases that violate the brand guidelines.'),
   suggestedRewrites: z
     .array(z.string())
-    .describe('A list of suggested rewrites for the website content.'),
+    .describe('A list of suggested rewrites for the flagged issues.'),
+  recommendations: z
+    .array(z.string())
+    .describe('A list of high-level strategic recommendations to improve overall brand alignment.'),
 });
 export type AnalyzeContentComplianceOutput = z.infer<
   typeof AnalyzeContentComplianceOutputSchema
@@ -49,15 +52,27 @@ const analyzeContentCompliancePrompt = ai.definePrompt({
   name: 'analyzeContentCompliancePrompt',
   input: {schema: AnalyzeContentComplianceInputSchema},
   output: {schema: AnalyzeContentComplianceOutputSchema},
-  prompt: `You are an AI content compliance auditor. Analyze the provided website content against the following brand guidelines. Provide a compliance score, flag any issues, and suggest rewrites to ensure brand consistency and accuracy.
+  prompt: `You are an AI content compliance auditor. Your task is to analyze the provided website content against the brand guidelines.
+
+You must perform the following actions:
+1.  **Score Compliance:** Provide a compliance score from 0 to 100. A score of 100 means perfect compliance. A score of 0 means total non-compliance.
+2.  **Flag Issues:** Identify and list specific phrases, sentences, or sections from the website content that violate the brand guidelines. Be precise.
+3.  **Suggest Rewrites:** For each flagged issue, provide a concrete, rewritten alternative that aligns with the guidelines.
+4.  **Give Recommendations:** Provide a list of 2-3 high-level, strategic recommendations for improving the content's overall alignment with the brand voice and mission. These should be broader than the specific rewrites.
+
+Here is the data for your analysis:
 
 Brand Guidelines:
+'''
 {{brandGuidelines}}
+'''
 
-Website Content:
+Website Content to Analyze:
+'''
 {{websiteContent}}
+'''
 
-URL:
+URL of the page:
 {{url}}`,
 });
 

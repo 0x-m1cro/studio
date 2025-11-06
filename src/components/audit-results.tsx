@@ -10,27 +10,30 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, AlertCircle, Download, FileQuestion, Eye, Copy, Check } from 'lucide-react';
+import { Loader2, AlertCircle, Download, FileQuestion, Eye, Copy, Check, FileJson, FileText, Star } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult | null; isOpen: boolean; onOpenChange: (open: boolean) => void }) {
-  const [copiedStates, setCopiedStates] = React.useState<boolean[]>([]);
+  const [copiedStates, setCopiedStates] = React.useState<{ [key: string]: boolean[] }>({ rewrites: [], recommendations: [] });
 
   React.useEffect(() => {
-    if(result?.data?.suggestedRewrites) {
-        setCopiedStates(new Array(result.data.suggestedRewrites.length).fill(false));
+    if (result?.data) {
+      setCopiedStates({
+        rewrites: new Array(result.data.suggestedRewrites?.length || 0).fill(false),
+        recommendations: new Array(result.data.recommendations?.length || 0).fill(false),
+      });
     }
   }, [result]);
 
-
-  const handleCopy = (text: string, index: number) => {
+  const handleCopy = (text: string, type: 'rewrites' | 'recommendations', index: number) => {
     navigator.clipboard.writeText(text);
-    const newCopiedStates = [...copiedStates];
-    newCopiedStates[index] = true;
+    const newCopiedStates = { ...copiedStates };
+    newCopiedStates[type][index] = true;
     setCopiedStates(newCopiedStates);
     setTimeout(() => {
-        const resetCopiedStates = [...copiedStates];
-        resetCopiedStates[index] = false;
-        setCopiedStates(resetCopiedStates);
+      const resetCopiedStates = { ...copiedStates };
+      resetCopiedStates[type][index] = false;
+      setCopiedStates(resetCopiedStates);
     }, 2000);
   };
   
@@ -60,6 +63,31 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
                           </Card>
                           <Card>
                               <CardHeader>
+                                  <CardTitle className="flex items-center gap-2">
+                                    <Star className="text-yellow-500"/>
+                                    Strategic Recommendations ({result.data.recommendations?.length || 0})
+                                  </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                  <div className="space-y-4">
+                                      {result.data.recommendations?.map((rec, index) => (
+                                          <div key={index} className="p-4 border rounded-lg bg-muted/50 relative group">
+                                              <p className="text-sm">{rec}</p>
+                                               <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={() => handleCopy(rec, 'recommendations', index)}
+                                                >
+                                                    {copiedStates.recommendations?.[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                                                </Button>
+                                          </div>
+                                      ))}
+                                  </div>
+                              </CardContent>
+                          </Card>
+                          <Card>
+                              <CardHeader>
                                   <CardTitle>Flagged Issues ({result.data.flaggedIssues.length})</CardTitle>
                               </CardHeader>
                               <CardContent>
@@ -83,9 +111,9 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
                                                     variant="ghost"
                                                     size="icon"
                                                     className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={() => handleCopy(rewrite, index)}
+                                                    onClick={() => handleCopy(rewrite, 'rewrites', index)}
                                                 >
-                                                    {copiedStates[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                                                    {copiedStates.rewrites?.[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                                                 </Button>
                                           </div>
                                       ))}
@@ -117,25 +145,59 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
         setIsModalOpen(true);
     };
 
+    const downloadFile = (content: string, fileName: string, contentType: string) => {
+      const blob = new Blob([content], { type: contentType });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    const handleExportJson = () => {
+      const jsonContent = JSON.stringify(results, null, 2);
+      downloadFile(jsonContent, 'content-audit-results.json', 'application/json');
+    };
+
+    const handleExportMd = () => {
+      let mdContent = '# Content Audit Results\n\n';
+      results.forEach(res => {
+        mdContent += `## [${res.url}](${res.url})\n\n`;
+        mdContent += `**Status:** ${res.status}\n\n`;
+        if (res.status === 'success' && res.data) {
+          mdContent += `**Compliance Score:** ${res.data.complianceScore}%\n\n`;
+          mdContent += `### Strategic Recommendations (${res.data.recommendations?.length || 0})\n`;
+          res.data.recommendations?.forEach(rec => (mdContent += `- ${rec}\n`));
+          mdContent += `\n### Flagged Issues (${res.data.flaggedIssues.length})\n`;
+          res.data.flaggedIssues.forEach(issue => (mdContent += `- ${issue}\n`));
+          mdContent += `\n### Suggested Rewrites (${res.data.suggestedRewrites.length})\n`;
+          res.data.suggestedRewrites.forEach(rewrite => (mdContent += `\`\`\`\n${rewrite}\n\`\`\`\n`));
+        } else {
+          mdContent += `**Error:** ${res.error}\n`;
+        }
+        mdContent += '\n---\n\n';
+      });
+      downloadFile(mdContent, 'content-audit-results.md', 'text/markdown');
+    }
+
     const handleExportCsv = () => {
-        const headers = ['URL', 'Status', 'Compliance Score', 'Flagged Issues', 'Suggested Rewrites'];
+        const headers = ['URL', 'Status', 'Compliance Score', 'Recommendations', 'Flagged Issues', 'Suggested Rewrites'];
         const rows = results.map(res => {
             const score = res.status === 'success' ? res.data?.complianceScore : 'N/A';
+            const recommendations = res.status === 'success' ? res.data?.recommendations?.join('; ') : 'N/A';
             const issues = res.status === 'success' ? res.data?.flaggedIssues.join('; ') : res.error;
             const rewrites = res.status === 'success' ? res.data?.suggestedRewrites.join('; ') : 'N/A';
-            return [res.url, res.status, score, `"${issues?.replace(/"/g, '""')}"`, `"${rewrites?.replace(/"/g, '""')}"`].join(',');
+            
+            const escapeCsv = (str: string | undefined | null) => str ? `"${String(str).replace(/"/g, '""')}"` : '""';
+
+            return [res.url, res.status, score, escapeCsv(recommendations), escapeCsv(issues), escapeCsv(rewrites)].join(',');
         });
         
         const csvContent = [headers.join(','), ...rows].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'content-audit-results.csv');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        downloadFile(csvContent, 'content-audit-results.csv', 'text/csv;charset=utf-8;');
     };
 
     if (isLoading) {
@@ -185,10 +247,28 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
                         <CardTitle>Audit Results</CardTitle>
                         <CardDescription>Found {results.length} result(s). Review the compliance of each page.</CardDescription>
                     </div>
-                    <Button variant="outline" onClick={handleExportCsv} disabled={results.length === 0}>
-                        <Download className="w-4 h-4 mr-2" />
-                        Export CSV
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" disabled={results.length === 0}>
+                            <Download className="w-4 h-4 mr-2" />
+                            Export Results
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem onClick={handleExportCsv}>
+                            <Download className="w-4 h-4 mr-2" />
+                            Export as CSV
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleExportJson}>
+                            <FileJson className="w-4 h-4 mr-2" />
+                            Export as JSON
+                        </DropdownMenuItem>
+                         <DropdownMenuItem onClick={handleExportMd}>
+                            <FileText className="w-4 h-4 mr-2" />
+                            Export as Markdown
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                 </CardHeader>
                 <CardContent>
                     <Table>

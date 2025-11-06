@@ -8,12 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload, KeyRound } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound, Search } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
 import * as pdfjs from 'pdfjs-dist';
 import { LiveLogs } from '@/components/live-logs';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // Required for pdfjs-dist
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -29,6 +30,7 @@ export default function ContentQaPage() {
   const [tempGuidelines, setTempGuidelines] = React.useState('');
   const [urls, setUrls] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
+  const [autoDiscover, setAutoDiscover] = React.useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
   const [logs, setLogs] = React.useState<string[]>([]);
   const [auditState, setAuditState] = React.useState<AuditState>({
@@ -43,10 +45,12 @@ export default function ContentQaPage() {
       const savedGuidelines = localStorage.getItem('brandGuidelines');
       const savedUrls = localStorage.getItem('urls');
       const savedApiKey = localStorage.getItem('apiKey');
+      const savedAutoDiscover = localStorage.getItem('autoDiscover');
 
       if (savedGuidelines) setBrandGuidelines(savedGuidelines);
       if (savedUrls) setUrls(savedUrls);
       if (savedApiKey) setApiKey(savedApiKey);
+      if (savedAutoDiscover) setAutoDiscover(JSON.parse(savedAutoDiscover));
     } catch (error) {
       console.error('Failed to read from localStorage:', error);
     }
@@ -76,6 +80,13 @@ export default function ContentQaPage() {
     }
   }, [apiKey]);
   
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('autoDiscover', JSON.stringify(autoDiscover));
+    } catch (error) {
+      console.error('Failed to save autoDiscover to localStorage:', error);
+    }
+  }, [autoDiscover]);
 
   React.useEffect(() => {
     setTempGuidelines(brandGuidelines);
@@ -114,7 +125,7 @@ export default function ContentQaPage() {
     
     setLogs(prev => [...prev, 'Starting audit...']);
 
-    const response = await runAudits({ brandGuidelines, urls, apiKey });
+    const response = await runAudits({ brandGuidelines, urls, apiKey, autoDiscover });
 
     if (response.success && response.results) {
       setAuditState({ isLoading: false, results: response.results, error: null });
@@ -239,6 +250,20 @@ export default function ContentQaPage() {
                       disabled={auditState.isLoading}
                     />
                     <p className="text-sm text-muted-foreground">Enter one URL per line or separate them with commas.</p>
+                  </div>
+                   <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="auto-discover"
+                      checked={autoDiscover}
+                      onCheckedChange={(checked) => setAutoDiscover(checked as boolean)}
+                      disabled={auditState.isLoading}
+                    />
+                    <Label
+                      htmlFor="auto-discover"
+                      className="text-sm font-normal text-muted-foreground"
+                    >
+                      Automatically discover and audit all pages on the first URL's domain.
+                    </Label>
                   </div>
                   <Button type="submit" disabled={auditState.isLoading}>
                     <Rocket className="w-4 h-4 mr-2" />

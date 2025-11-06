@@ -7,6 +7,7 @@ const AuditInputSchema = z.object({
   brandGuidelines: z.string().min(1, 'Brand guidelines are required.'),
   urls: z.string().min(1, 'At least one URL is required.'),
   apiKey: z.string().optional(),
+  autoDiscover: z.boolean().optional(),
 });
 
 export type AuditResult = {
@@ -16,8 +17,29 @@ export type AuditResult = {
   error?: string;
 };
 
-// In a real-world application, this would be a sophisticated crawler
-// that can handle SPAs, extract meaningful content, and be more robust.
+// A simple regex to find links in HTML
+const linkRegex = /<a\s+(?:[^>]*?\s+)?href="([^"]*)"/g;
+
+async function crawlLinks(url: string, baseUrl: string, logs: string[]): Promise<string[]> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) return [];
+    const html = await response.text();
+    const links = new Set<string>();
+    let match;
+    while ((match = linkRegex.exec(html)) !== null) {
+      const foundUrl = new URL(match[1], baseUrl).href;
+      if (foundUrl.startsWith(baseUrl)) {
+        links.add(foundUrl.split('#')[0].split('?')[0]);
+      }
+    }
+    return Array.from(links);
+  } catch (error) {
+    logs.push(`[${url}]: Failed to crawl for links: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return [];
+  }
+}
+
 async function fetchWebsiteContent(url: string): Promise<string> {
   try {
     const response = await fetch(url, {
@@ -70,7 +92,7 @@ export async function runAudits(
     return { success: false, error, logs };
   }
 
-  const { brandGuidelines, urls, apiKey } = validation.data;
+  const { brandGuidelines, urls, apiKey, autoDiscover } = validation.data;
 
   if (apiKey) {
     process.env.GEMINI_API_KEY = apiKey;
@@ -82,7 +104,7 @@ export async function runAudits(
      return { success: false, error, logs };
   }
 
-  const urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
+  let urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
     try {
         const fullUrl = url.startsWith('http') ? url : `https://${url}`;
         return new URL(fullUrl).toString();
@@ -97,6 +119,16 @@ export async function runAudits(
     return { success: false, error, logs };
   }
   
+  if (autoDiscover) {
+    const firstUrl = new URL(urlList[0]);
+    const baseUrl = `${firstUrl.protocol}//${firstUrl.hostname}`;
+    logs.push(`Auto-discovery enabled. Crawling from ${baseUrl}...`);
+    const discoveredLinks = await crawlLinks(urlList[0], baseUrl, logs);
+    const allLinks = new Set([...urlList, ...discoveredLinks]);
+    urlList = Array.from(allLinks);
+    logs.push(`Discovered ${discoveredLinks.length} new links. Total URLs to audit: ${urlList.length}.`);
+  }
+
   logs.push(`Starting audit for ${urlList.length} URL(s)...`);
 
   const results: AuditResult[] = [];
