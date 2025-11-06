@@ -59,15 +59,15 @@ async function fetchWebsiteContent(url: string): Promise<string> {
 }
 
 export async function runAudits(
-  values: z.infer<typeof AuditInputSchema>,
-  logCallback: (log: string) => void
-): Promise<{ success: boolean; results?: AuditResult[]; error?: string }> {
+  values: z.infer<typeof AuditInputSchema>
+): Promise<{ success: boolean; results?: AuditResult[]; error?: string; logs: string[] }> {
+  const logs: string[] = [];
   const validation = AuditInputSchema.safeParse(values);
 
   if (!validation.success) {
     const error = validation.error.errors.map(e => e.message).join(', ');
-    logCallback(`Validation error: ${error}`);
-    return { success: false, error };
+    logs.push(`Validation error: ${error}`);
+    return { success: false, error, logs };
   }
 
   const { brandGuidelines, urls, apiKey } = validation.data;
@@ -78,8 +78,8 @@ export async function runAudits(
   
   if (!process.env.GEMINI_API_KEY) {
      const error = "Gemini API key is not set. Please provide it.";
-     logCallback(`API Key error: ${error}`);
-     return { success: false, error };
+     logs.push(`API Key error: ${error}`);
+     return { success: false, error, logs };
   }
 
   const urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
@@ -93,35 +93,35 @@ export async function runAudits(
 
   if (urlList.length === 0) {
     const error = "Please provide at least one valid URL.";
-    logCallback(`URL error: ${error}`);
-    return { success: false, error };
+    logs.push(`URL error: ${error}`);
+    return { success: false, error, logs };
   }
   
-  logCallback(`Starting audit for ${urlList.length} URL(s)...`);
+  logs.push(`Starting audit for ${urlList.length} URL(s)...`);
 
   const results: AuditResult[] = [];
   for (const url of urlList) {
     try {
-      logCallback(`[${url}]: Fetching content...`);
+      logs.push(`[${url}]: Fetching content...`);
       const websiteContent = await fetchWebsiteContent(url);
       if (!websiteContent) {
         throw new Error('Could not extract meaningful content from URL.');
       }
-      logCallback(`[${url}]: Content fetched successfully. Analyzing...`);
+      logs.push(`[${url}]: Content fetched successfully. Analyzing...`);
 
       const analysis = await analyzeContentCompliance({
         brandGuidelines,
         websiteContent,
         url,
       });
-      logCallback(`[${url}]: Analysis complete. Score: ${analysis.complianceScore}%`);
+      logs.push(`[${url}]: Analysis complete. Score: ${analysis.complianceScore}%`);
       results.push({ url, status: 'success' as const, data: analysis });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      logCallback(`[${url}]: Error - ${errorMessage}`);
+      logs.push(`[${url}]: Error - ${errorMessage}`);
       results.push({ url, status: 'error' as const, error: errorMessage });
     }
   }
 
-  return { success: true, results };
+  return { success: true, results, logs };
 }

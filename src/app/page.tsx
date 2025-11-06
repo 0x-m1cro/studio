@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload, KeyRound, Terminal } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
@@ -72,21 +72,25 @@ export default function ContentQaPage() {
 
     setAuditState({ isLoading: true, results: [], error: null });
     setLogs([]);
+    const initialLogs: string[] = [];
+    const log = (message: string) => {
+        setLogs(prev => [...prev, message]);
+    }
+    
+    log(`Starting audit...`);
 
-    const response = await runAudits({ brandGuidelines, urls, apiKey }, (log) => {
-      setLogs((prev) => [...prev, log]);
-    });
+    const response = await runAudits({ brandGuidelines, urls, apiKey });
 
     if (response.success && response.results) {
       setAuditState({ isLoading: false, results: response.results, error: null });
-       setLogs((prev) => [...prev, `✅ Audit complete. Analyzed ${response.results.length} URLs.`]);
+       setLogs((prev) => [...prev, ...response.logs, `✅ Audit complete. Analyzed ${response.results.length} URLs.`]);
       toast({
         title: 'Audit Complete',
         description: `Analyzed ${response.results.length} URLs.`,
       });
     } else {
       setAuditState({ isLoading: false, results: [], error: response.error || 'An unexpected error occurred.' });
-      setLogs((prev) => [...prev, `❌ Audit failed: ${response.error || 'An unexpected error occurred.'}`]);
+      setLogs((prev) => [...prev, ...response.logs, `❌ Audit failed: ${response.error || 'An unexpected error occurred.'}`]);
       toast({
         variant: 'destructive',
         title: 'Audit Failed',
