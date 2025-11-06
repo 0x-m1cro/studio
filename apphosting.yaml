@@ -5,7 +5,7 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
-  # Add system packages required for Playwright to run.
+  # Add system packages required for Puppeteer/@sparticuz/chromium to run.
   packages:
     - libglib2.0-0
     - libnss3
