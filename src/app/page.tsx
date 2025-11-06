@@ -39,6 +39,45 @@ export default function ContentQaPage() {
   const { toast } = useToast();
 
   React.useEffect(() => {
+    try {
+      const savedGuidelines = localStorage.getItem('brandGuidelines');
+      const savedUrls = localStorage.getItem('urls');
+      const savedApiKey = localStorage.getItem('apiKey');
+
+      if (savedGuidelines) setBrandGuidelines(savedGuidelines);
+      if (savedUrls) setUrls(savedUrls);
+      if (savedApiKey) setApiKey(savedApiKey);
+    } catch (error) {
+      console.error('Failed to read from localStorage:', error);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      if(brandGuidelines) localStorage.setItem('brandGuidelines', brandGuidelines);
+    } catch (error) {
+       console.error('Failed to save brandGuidelines to localStorage:', error);
+    }
+  }, [brandGuidelines]);
+
+  React.useEffect(() => {
+     try {
+       if(urls) localStorage.setItem('urls', urls);
+    } catch (error) {
+       console.error('Failed to save urls to localStorage:', error);
+    }
+  }, [urls]);
+
+  React.useEffect(() => {
+     try {
+       if(apiKey) localStorage.setItem('apiKey', apiKey);
+    } catch (error) {
+       console.error('Failed to save apiKey to localStorage:', error);
+    }
+  }, [apiKey]);
+  
+
+  React.useEffect(() => {
     setTempGuidelines(brandGuidelines);
   }, [brandGuidelines, isDrawerOpen]);
 
@@ -72,12 +111,8 @@ export default function ContentQaPage() {
 
     setAuditState({ isLoading: true, results: [], error: null });
     setLogs([]);
-    const initialLogs: string[] = [];
-    const log = (message: string) => {
-        setLogs(prev => [...prev, message]);
-    }
     
-    log(`Starting audit...`);
+    setLogs(prev => [...prev, 'Starting audit...']);
 
     const response = await runAudits({ brandGuidelines, urls, apiKey });
 
