@@ -36,7 +36,9 @@ const AnalyzeContentComplianceOutputSchema = z.object({
     .describe('A list of suggested rewrites for the flagged issues.'),
   recommendations: z
     .array(z.string())
-    .describe('A list of high-level strategic recommendations to improve overall brand alignment.'),
+    .describe(
+      'A list of high-level strategic recommendations to improve overall brand alignment, tailored to the specific content and purpose of the page.'
+    ),
 });
 export type AnalyzeContentComplianceOutput = z.infer<
   typeof AnalyzeContentComplianceOutputSchema
@@ -52,13 +54,13 @@ const analyzeContentCompliancePrompt = ai.definePrompt({
   name: 'analyzeContentCompliancePrompt',
   input: {schema: AnalyzeContentComplianceInputSchema},
   output: {schema: AnalyzeContentComplianceOutputSchema},
-  prompt: `You are an AI content compliance auditor. Your task is to analyze the provided website content against the brand guidelines.
+  prompt: `You are an expert brand strategist and copywriter. Your task is to analyze the provided website content against a brand's guidelines and provide a detailed, page-specific audit.
 
 You must perform the following actions:
 1.  **Score Compliance:** Provide a compliance score from 0 to 100. A score of 100 means perfect compliance. A score of 0 means total non-compliance.
-2.  **Flag Issues:** Identify and list specific phrases, sentences, or sections from the website content that violate the brand guidelines. Be precise.
+2.  **Flag Issues:** Identify and list specific phrases, sentences, or sections from the website content that directly violate the brand guidelines. Be precise.
 3.  **Suggest Rewrites:** For each flagged issue, provide a concrete, rewritten alternative that aligns with the guidelines.
-4.  **Give Recommendations:** Provide a list of 2-3 high-level, strategic recommendations for improving the content's overall alignment with the brand voice and mission. These should be broader than the specific rewrites.
+4.  **Give Strategic Recommendations:** Provide a list of 2-3 high-level, strategic recommendations for improving the content's alignment with the brand. These recommendations must be page-specific and contextual. For example, instead of a generic suggestion like "use the brand name more," offer a recommendation like, "On this 'Offers' page, weave in the brand's ethos of 'affordable luxury' into the promotion descriptions to better attract the target audience." Analyze how the page's purpose (e.g., 'About Us', 'Pricing', 'Contact') can better reflect the brand's unique voice, tone, and messaging.
 
 Here is the data for your analysis:
 
@@ -67,13 +69,10 @@ Brand Guidelines:
 {{brandGuidelines}}
 '''
 
-Website Content to Analyze:
+Website Content to Analyze (from {{url}}):
 '''
 {{websiteContent}}
-'''
-
-URL of the page:
-{{url}}`,
+'''`,
 });
 
 const analyzeContentComplianceFlow = ai.defineFlow(
