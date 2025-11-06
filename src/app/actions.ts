@@ -2,6 +2,7 @@
 
 import { analyzeContentCompliance, type AnalyzeContentComplianceOutput } from '@/ai/flows/ai-powered-content-compliance';
 import { z } from 'zod';
+import { chromium } from 'playwright';
 
 const SingleAuditInputSchema = z.object({
   brandGuidelines: z.string().min(1, 'Brand guidelines are required.'),
@@ -13,10 +14,21 @@ const CrawlInputSchema = z.object({
   startUrl: z.string().url('A valid starting URL is required.'),
 });
 
+const ScreenshotInputSchema = z.object({
+  url: z.string().url(),
+  selectors: z.array(z.string()),
+});
+
+export type Screenshot = {
+    selector: string;
+    screenshot: string; // base64
+};
+
 export type AuditResult = {
   url: string;
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'pending';
   data?: AnalyzeContentComplianceOutput;
+  screenshots?: Screenshot[];
   error?: string;
 };
 
@@ -37,7 +49,18 @@ async function fetchWebsiteContent(url: string): Promise<string> {
     }
 
     const html = await response.text();
-    // A very basic way to extract text. This will not work well for complex sites.
+    // Return the full HTML to be used for screenshots, text extraction will happen later
+    return html;
+  } catch (error) {
+    console.error(`Error fetching or processing ${url}:`, error);
+    if (error instanceof Error) {
+        throw new Error(`Could not retrieve content from ${url}: ${error.message}`);
+    }
+    throw new Error(`An unknown error occurred while fetching ${url}`);
+  }
+}
+
+function extractTextFromHtml(html: string): string {
     const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/);
     if (!bodyMatch) {
        return '';
@@ -54,14 +77,8 @@ async function fetchWebsiteContent(url: string): Promise<string> {
     
     // Limit content size to avoid hitting model context limits
     return text.substring(0, 15000);
-  } catch (error) {
-    console.error(`Error fetching or processing ${url}:`, error);
-    if (error instanceof Error) {
-        throw new Error(`Could not retrieve content from ${url}: ${error.message}`);
-    }
-    throw new Error(`An unknown error occurred while fetching ${url}`);
-  }
 }
+
 
 export async function crawlLinksForAudit(
   values: z.infer<typeof CrawlInputSchema>
@@ -118,10 +135,12 @@ export async function runSingleAudit(
   }
 
   try {
-    const websiteContent = await fetchWebsiteContent(url);
-    if (!websiteContent) {
+    const websiteHtml = await fetchWebsiteContent(url);
+    if (!websiteHtml) {
       throw new Error('Could not extract meaningful content from URL.');
     }
+    
+    const websiteContent = extractTextFromHtml(websiteHtml);
 
     const analysis = await analyzeContentCompliance({
       brandGuidelines,
@@ -134,4 +153,54 @@ export async function runSingleAudit(
     const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
     return { success: false, error: errorMessage, result: { url, status: 'error', error: errorMessage } };
   }
+}
+
+export async function takeScreenshots(
+    values: z.infer<typeof ScreenshotInputSchema>
+): Promise<{ success: boolean, screenshots?: Screenshot[], error?: string }> {
+    const validation = ScreenshotInputSchema.safeParse(values);
+    if (!validation.success) {
+        return { success: false, error: "Invalid input for screenshot action." };
+    }
+
+    const { url, selectors } = validation.data;
+    if (selectors.length === 0) {
+        return { success: true, screenshots: [] };
+    }
+
+    let browser;
+    try {
+        browser = await chromium.launch();
+        const context = await browser.newContext({
+            viewport: { width: 1280, height: 800 },
+            deviceScaleFactor: 1,
+        });
+        const page = await context.newPage();
+        await page.goto(url, { waitUntil: 'networkidle' });
+
+        const screenshots: Screenshot[] = [];
+
+        for (const selector of selectors) {
+            try {
+                const element = page.locator(selector).first();
+                const buffer = await element.screenshot();
+                screenshots.push({
+                    selector,
+                    screenshot: buffer.toString('base64'),
+                });
+            } catch (e) {
+                console.warn(`Could not take screenshot for selector "${selector}" on ${url}:`, e);
+            }
+        }
+        
+        return { success: true, screenshots };
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during screenshot capture.';
+        console.error("Playwright error:", errorMessage);
+        return { success: false, error: errorMessage };
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
+    }
 }

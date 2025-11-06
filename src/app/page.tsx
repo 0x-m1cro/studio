@@ -8,10 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload, KeyRound, Search, FileSymlink } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound, FileSymlink } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
-import { crawlLinksForAudit, runSingleAudit, type AuditResult } from './actions';
+import { crawlLinksForAudit, runSingleAudit, takeScreenshots, type AuditResult, type Screenshot } from './actions';
 import * as pdfjs from 'pdfjs-dist';
 import { LiveLogs } from '@/components/live-logs';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -177,22 +177,48 @@ export default function ContentQaPage() {
     }
     
     addLog(`Found ${urlList.length} total URLs to audit.`);
+    
+    setAuditState(prev => ({ ...prev, isLoading: true, results: urlList.map(url => ({ url, status: 'pending' })) }));
 
     const newResults: AuditResult[] = [];
     for (const url of urlList) {
         addLog(`[${url}]: Starting analysis...`);
         const response = await runSingleAudit({ brandGuidelines, url, apiKey });
         
-        if (response.success && response.result) {
-            newResults.push(response.result);
-            setAuditState(prev => ({ ...prev, isLoading: true, results: [...newResults] }));
-            addLog(`[${url}]: ✅ Analysis complete. Score: ${response.result.data?.complianceScore || 'N/A'}%`);
+        let finalResult: AuditResult;
+
+        if (response.success && response.result?.data) {
+            addLog(`[${url}]: ✅ Analysis complete. Score: ${response.result.data.complianceScore || 'N/A'}%`);
+            addLog(`[${url}]: Capturing screenshots...`);
+
+            const selectors = [
+                ...response.result.data.recommendations.map(r => r.selector),
+                ...response.result.data.flaggedIssues.map(i => i.selector),
+                ...response.result.data.suggestedRewrites.map(r => r.selector)
+            ].filter((s): s is string => !!s);
+            
+            const uniqueSelectors = Array.from(new Set(selectors));
+
+            const screenshotResponse = await takeScreenshots({ url, selectors: uniqueSelectors });
+
+            if(screenshotResponse.success && screenshotResponse.screenshots) {
+                addLog(`[${url}]: ✅ Captured ${screenshotResponse.screenshots.length} screenshots.`);
+                finalResult = { ...response.result, status: 'success', screenshots: screenshotResponse.screenshots };
+            } else {
+                addLog(`[${url}]: ⚠️  Could not capture screenshots: ${screenshotResponse.error}`);
+                finalResult = { ...response.result, status: 'success', screenshots: [] }; // Still a success, just no screenshots
+            }
         } else {
-            const errorResult: AuditResult = { url, status: 'error', error: response.error };
-            newResults.push(errorResult);
-            setAuditState(prev => ({ ...prev, isLoading: true, results: [...newResults] }));
             addLog(`[${url}]: ❌ Audit failed: ${response.error}`);
+            finalResult = { url, status: 'error', error: response.error };
         }
+        
+        newResults.push(finalResult);
+
+        setAuditState(prev => {
+            const updatedResults = prev.results.map(r => r.url === url ? finalResult : r);
+            return { ...prev, isLoading: true, results: updatedResults };
+        });
     }
     
     setAuditState(prev => ({...prev, isLoading: false }));

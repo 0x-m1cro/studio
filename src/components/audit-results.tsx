@@ -1,20 +1,28 @@
 'use client';
 
 import * as React from 'react';
-import type { AuditResult } from '@/app/actions';
+import type { AuditResult, Screenshot } from '@/app/actions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, AlertCircle, Download, FileQuestion, Eye, Copy, Check, FileJson, FileText, Star } from 'lucide-react';
+import { Loader2, AlertCircle, Download, FileQuestion, Eye, Copy, Check, FileJson, FileText, Star, Image as ImageIcon } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import Image from 'next/image';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult | null; isOpen: boolean; onOpenChange: (open: boolean) => void }) {
   const [copiedStates, setCopiedStates] = React.useState<{ [key: string]: boolean[] }>({ rewrites: [], recommendations: [] });
+
+  const getScreenshotForSelector = (selector: string | undefined): string | undefined => {
+    if (!selector || !result?.screenshots) return undefined;
+    const found = result.screenshots.find(s => s.selector === selector);
+    return found ? `data:image/png;base64,${found.screenshot}` : undefined;
+  }
 
   React.useEffect(() => {
     if (result?.data) {
@@ -38,6 +46,39 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
   };
   
   if (!result) return null;
+
+  const renderAuditItem = (item: { text: string; selector?: string | undefined; }, type: 'rewrites' | 'recommendations', index: number) => {
+    const screenshot = getScreenshotForSelector(item.selector);
+    return (
+        <div key={index} className="p-4 border rounded-lg bg-muted/50 relative group flex items-start gap-4">
+            <div className="flex-1">
+                <p className={type === 'rewrites' ? "font-code text-sm" : "text-sm"}>{item.text}</p>
+            </div>
+            <div className="flex items-center gap-1">
+                {screenshot && (
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity">
+                                <ImageIcon className="h-4 w-4" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto">
+                            <Image src={screenshot} alt={`Screenshot for selector: ${item.selector}`} width={600} height={400} className="rounded-md" />
+                        </PopoverContent>
+                    </Popover>
+                )}
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleCopy(item.text, type, index)}
+                >
+                    {copiedStates[type]?.[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                </Button>
+            </div>
+        </div>
+    );
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -70,19 +111,7 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
                               </CardHeader>
                               <CardContent>
                                   <div className="space-y-4">
-                                      {result.data.recommendations?.map((rec, index) => (
-                                          <div key={index} className="p-4 border rounded-lg bg-muted/50 relative group">
-                                              <p className="text-sm">{rec}</p>
-                                               <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={() => handleCopy(rec, 'recommendations', index)}
-                                                >
-                                                    {copiedStates.recommendations?.[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                                                </Button>
-                                          </div>
-                                      ))}
+                                      {result.data.recommendations?.map((rec, index) => renderAuditItem(rec, 'recommendations', index))}
                                   </div>
                               </CardContent>
                           </Card>
@@ -91,11 +120,28 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
                                   <CardTitle>Flagged Issues ({result.data.flaggedIssues.length})</CardTitle>
                               </CardHeader>
                               <CardContent>
-                                  <ul className="space-y-2 list-disc list-inside text-muted-foreground">
-                                      {result.data.flaggedIssues.map((issue, index) => (
-                                          <li key={index}>{issue}</li>
-                                      ))}
-                                  </ul>
+                                  <div className="space-y-4">
+                                      {result.data.flaggedIssues.map((issue, index) => {
+                                           const screenshot = getScreenshotForSelector(issue.selector);
+                                           return (
+                                               <div key={index} className="flex items-start gap-4 p-4 border rounded-lg bg-muted/50 group">
+                                                    <div className="flex-1 text-sm text-muted-foreground list-disc list-inside"><li>{issue.text}</li></div>
+                                                    {screenshot && (
+                                                        <Popover>
+                                                            <PopoverTrigger asChild>
+                                                                <Button variant="ghost" size="icon" className="h-7 w-7 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                                    <ImageIcon className="h-4 w-4" />
+                                                                </Button>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent className="w-auto">
+                                                                <Image src={screenshot} alt={`Screenshot for selector: ${issue.selector}`} width={600} height={400} className="rounded-md" />
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                    )}
+                                               </div>
+                                           )
+                                      })}
+                                  </div>
                               </CardContent>
                           </Card>
                           <Card>
@@ -104,19 +150,7 @@ function PageDetailModal({ result, isOpen, onOpenChange }: { result: AuditResult
                               </CardHeader>
                               <CardContent>
                                   <div className="space-y-4">
-                                      {result.data.suggestedRewrites.map((rewrite, index) => (
-                                          <div key={index} className="p-4 border rounded-lg bg-muted/50 relative group">
-                                              <p className="font-code text-sm">{rewrite}</p>
-                                               <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    onClick={() => handleCopy(rewrite, 'rewrites', index)}
-                                                >
-                                                    {copiedStates.rewrites?.[index] ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                                                </Button>
-                                          </div>
-                                      ))}
+                                      {result.data.suggestedRewrites.map((rewrite, index) => renderAuditItem(rewrite, 'rewrites', index))}
                                   </div>
                               </CardContent>
                           </Card>
@@ -141,6 +175,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
     const [isModalOpen, setIsModalOpen] = React.useState(false);
 
     const handleViewDetails = (result: AuditResult) => {
+        if(result.status === 'pending' || result.status === 'error') return;
         setSelectedResult(result);
         setIsModalOpen(true);
     };
@@ -158,25 +193,25 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
     }
 
     const handleExportJson = () => {
-      const jsonContent = JSON.stringify(results, null, 2);
+      const resultsToExport = results.filter(r => r.status === 'success');
+      const jsonContent = JSON.stringify(resultsToExport, null, 2);
       downloadFile(jsonContent, 'content-audit-results.json', 'application/json');
     };
 
     const handleExportMd = () => {
       let mdContent = '# Content Audit Results\n\n';
       results.forEach(res => {
+        if (res.status !== 'success') return;
         mdContent += `## [${res.url}](${res.url})\n\n`;
         mdContent += `**Status:** ${res.status}\n\n`;
-        if (res.status === 'success' && res.data) {
+        if (res.data) {
           mdContent += `**Compliance Score:** ${res.data.complianceScore}%\n\n`;
           mdContent += `### Strategic Recommendations (${res.data.recommendations?.length || 0})\n`;
-          res.data.recommendations?.forEach(rec => (mdContent += `- ${rec}\n`));
+          res.data.recommendations?.forEach(rec => (mdContent += `- ${rec.text}\n`));
           mdContent += `\n### Flagged Issues (${res.data.flaggedIssues.length})\n`;
-          res.data.flaggedIssues.forEach(issue => (mdContent += `- ${issue}\n`));
+          res.data.flaggedIssues.forEach(issue => (mdContent += `- ${issue.text}\n`));
           mdContent += `\n### Suggested Rewrites (${res.data.suggestedRewrites.length})\n`;
-          res.data.suggestedRewrites.forEach(rewrite => (mdContent += `\`\`\`\n${rewrite}\n\`\`\`\n`));
-        } else {
-          mdContent += `**Error:** ${res.error}\n`;
+          res.data.suggestedRewrites.forEach(rewrite => (mdContent += `\`\`\`\n${rewrite.text}\n\`\`\`\n`));
         }
         mdContent += '\n---\n\n';
       });
@@ -186,15 +221,17 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
     const handleExportCsv = () => {
         const headers = ['URL', 'Status', 'Compliance Score', 'Recommendations', 'Flagged Issues', 'Suggested Rewrites'];
         const rows = results.map(res => {
-            const score = res.status === 'success' ? res.data?.complianceScore : 'N/A';
-            const recommendations = res.status === 'success' ? res.data?.recommendations?.join('; ') : 'N/A';
-            const issues = res.status === 'success' ? res.data?.flaggedIssues.join('; ') : res.error;
-            const rewrites = res.status === 'success' ? res.data?.suggestedRewrites.join('; ') : 'N/A';
+            if (res.status !== 'success') return null;
+
+            const score = res.data?.complianceScore ?? 'N/A';
+            const recommendations = res.data?.recommendations?.map(r => r.text).join('; ') ?? 'N/A';
+            const issues = res.data?.flaggedIssues.map(i => i.text).join('; ') ?? 'N/A';
+            const rewrites = res.data?.suggestedRewrites.map(r => r.text).join('; ') ?? 'N/A';
             
             const escapeCsv = (str: string | undefined | null) => str ? `"${String(str).replace(/"/g, '""')}"` : '""';
 
             return [res.url, res.status, score, escapeCsv(recommendations), escapeCsv(issues), escapeCsv(rewrites)].join(',');
-        });
+        }).filter(Boolean);
         
         const csvContent = [headers.join(','), ...rows].join('\n');
         downloadFile(csvContent, 'content-audit-results.csv', 'text/csv;charset=utf-8;');
@@ -214,7 +251,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
         );
     }
 
-    if (error) {
+    if (error && !isLoading) {
         return (
              <Alert variant="destructive">
                 <AlertCircle className="w-4 h-4" />
@@ -239,6 +276,8 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
        )
     }
 
+    const successfulAudits = results.filter(r => r.status === 'success').length > 0;
+
     return (
         <>
             <Card className="shadow-lg">
@@ -249,7 +288,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" disabled={results.length === 0}>
+                        <Button variant="outline" disabled={!successfulAudits}>
                             <Download className="w-4 h-4 mr-2" />
                             Export Results
                         </Button>
@@ -285,7 +324,8 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
                                 <TableRow key={result.url}>
                                     <TableCell className="font-medium truncate max-w-xs">{result.url}</TableCell>
                                     <TableCell>
-                                        <Badge variant={result.status === 'success' ? 'default' : 'destructive'} className={result.status === 'success' ? 'bg-green-600' : ''}>
+                                        <Badge variant={result.status === 'success' ? 'default' : (result.status === 'error' ? 'destructive' : 'secondary')} className={result.status === 'success' ? 'bg-green-600' : ''}>
+                                            {result.status === 'pending' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                                             {result.status}
                                         </Badge>
                                     </TableCell>
@@ -300,7 +340,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <Button variant="ghost" size="sm" onClick={() => handleViewDetails(result)}>
+                                        <Button variant="ghost" size="sm" onClick={() => handleViewDetails(result)} disabled={result.status !== 'success'}>
                                             <Eye className="w-4 h-4 mr-2" />
                                             View Details
                                         </Button>
