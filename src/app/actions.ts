@@ -2,8 +2,8 @@
 
 import { analyzeContentCompliance, type AnalyzeContentComplianceOutput } from '@/ai/flows/ai-powered-content-compliance';
 import { z } from 'zod';
-import chromium from '@playwright/browser-chromium';
-import { type Browser } from 'playwright-core';
+import * as chromium from '@playwright/browser-chromium';
+import { type Browser, chromium as playwrightChromium } from 'playwright-core';
 
 
 const SingleAuditInputSchema = z.object({
@@ -172,7 +172,7 @@ export async function takeScreenshots(
 
     let browser: Browser | null = null;
     try {
-        browser = await chromium.launch({
+        browser = await playwrightChromium.launch({
           executablePath: chromium.executablePath(),
         });
         const context = await browser.newContext({
