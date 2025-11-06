@@ -185,12 +185,12 @@ export default function ContentQaPage() {
         
         if (response.success && response.result) {
             newResults.push(response.result);
-            setAuditState(prev => ({ ...prev, results: [...newResults] }));
+            setAuditState(prev => ({ ...prev, isLoading: true, results: [...newResults] }));
             addLog(`[${url}]: ✅ Analysis complete. Score: ${response.result.data?.complianceScore || 'N/A'}%`);
         } else {
             const errorResult: AuditResult = { url, status: 'error', error: response.error };
             newResults.push(errorResult);
-            setAuditState(prev => ({ ...prev, results: [...newResults] }));
+            setAuditState(prev => ({ ...prev, isLoading: true, results: [...newResults] }));
             addLog(`[${url}]: ❌ Audit failed: ${response.error}`);
         }
     }

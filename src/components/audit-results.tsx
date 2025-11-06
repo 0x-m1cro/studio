@@ -200,7 +200,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
         downloadFile(csvContent, 'content-audit-results.csv', 'text/csv;charset=utf-8;');
     };
 
-    if (isLoading) {
+    if (isLoading && results.length === 0) {
         return (
             <Card className="shadow-lg">
                 <CardHeader>
@@ -224,7 +224,7 @@ export function AuditResults({ results, isLoading, error }: { results: AuditResu
         );
     }
     
-    if (results.length === 0) {
+    if (results.length === 0 && !isLoading) {
        return (
             <Card className="shadow-lg">
                 <CardHeader>
