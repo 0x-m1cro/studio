@@ -3,11 +3,14 @@
 import { analyzeContentCompliance, type AnalyzeContentComplianceOutput } from '@/ai/flows/ai-powered-content-compliance';
 import { z } from 'zod';
 
-const AuditInputSchema = z.object({
+const SingleAuditInputSchema = z.object({
   brandGuidelines: z.string().min(1, 'Brand guidelines are required.'),
-  urls: z.string().min(1, 'At least one URL is required.'),
+  url: z.string().url('A valid URL is required.'),
   apiKey: z.string().optional(),
-  autoDiscover: z.boolean().optional(),
+});
+
+const CrawlInputSchema = z.object({
+  startUrl: z.string().url('A valid starting URL is required.'),
 });
 
 export type AuditResult = {
@@ -19,26 +22,6 @@ export type AuditResult = {
 
 // A simple regex to find links in HTML
 const linkRegex = /<a\s+(?:[^>]*?\s+)?href="([^"]*)"/g;
-
-async function crawlLinks(url: string, baseUrl: string, logs: string[]): Promise<string[]> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) return [];
-    const html = await response.text();
-    const links = new Set<string>();
-    let match;
-    while ((match = linkRegex.exec(html)) !== null) {
-      const foundUrl = new URL(match[1], baseUrl).href;
-      if (foundUrl.startsWith(baseUrl)) {
-        links.add(foundUrl.split('#')[0].split('?')[0]);
-      }
-    }
-    return Array.from(links);
-  } catch (error) {
-    logs.push(`[${url}]: Failed to crawl for links: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    return [];
-  }
-}
 
 async function fetchWebsiteContent(url: string): Promise<string> {
   try {
@@ -80,19 +63,50 @@ async function fetchWebsiteContent(url: string): Promise<string> {
   }
 }
 
-export async function runAudits(
-  values: z.infer<typeof AuditInputSchema>
-): Promise<{ success: boolean; results?: AuditResult[]; error?: string; logs: string[] }> {
-  const logs: string[] = [];
-  const validation = AuditInputSchema.safeParse(values);
+export async function crawlLinksForAudit(
+  values: z.infer<typeof CrawlInputSchema>
+): Promise<{ success: boolean; links?: string[]; error?: string }> {
+  const validation = CrawlInputSchema.safeParse(values);
+  if (!validation.success) {
+    const error = validation.error.errors.map(e => e.message).join(', ');
+    return { success: false, error };
+  }
+  const { startUrl } = validation.data;
+  const baseUrl = `${new URL(startUrl).protocol}//${new URL(startUrl).hostname}`;
+
+  try {
+    const response = await fetch(startUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch start URL: ${response.statusText}`);
+    };
+    const html = await response.text();
+    const links = new Set<string>();
+    let match;
+    while ((match = linkRegex.exec(html)) !== null) {
+      const foundUrl = new URL(match[1], baseUrl).href;
+      // Only include links from the same domain
+      if (foundUrl.startsWith(baseUrl)) {
+        // Normalize URL by removing hash and query params
+        links.add(foundUrl.split('#')[0].split('?')[0]);
+      }
+    }
+    return { success: true, links: Array.from(links) };
+  } catch (error) {
+     return { success: false, error: error instanceof Error ? error.message : 'Unknown error during crawling' };
+  }
+}
+
+export async function runSingleAudit(
+  values: z.infer<typeof SingleAuditInputSchema>
+): Promise<{ success: boolean; result?: AuditResult; error?: string }> {
+  const validation = SingleAuditInputSchema.safeParse(values);
 
   if (!validation.success) {
     const error = validation.error.errors.map(e => e.message).join(', ');
-    logs.push(`Validation error: ${error}`);
-    return { success: false, error, logs };
+    return { success: false, error };
   }
 
-  const { brandGuidelines, urls, apiKey, autoDiscover } = validation.data;
+  const { brandGuidelines, url, apiKey } = validation.data;
 
   if (apiKey) {
     process.env.GEMINI_API_KEY = apiKey;
@@ -100,60 +114,24 @@ export async function runAudits(
   
   if (!process.env.GEMINI_API_KEY) {
      const error = "Gemini API key is not set. Please provide it.";
-     logs.push(`API Key error: ${error}`);
-     return { success: false, error, logs };
+     return { success: false, error };
   }
 
-  let urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
-    try {
-        const fullUrl = url.startsWith('http') ? url : `https://${url}`;
-        return new URL(fullUrl).toString();
-    } catch {
-        return null;
+  try {
+    const websiteContent = await fetchWebsiteContent(url);
+    if (!websiteContent) {
+      throw new Error('Could not extract meaningful content from URL.');
     }
-  }).filter(Boolean) as string[];
 
-  if (urlList.length === 0) {
-    const error = "Please provide at least one valid URL.";
-    logs.push(`URL error: ${error}`);
-    return { success: false, error, logs };
+    const analysis = await analyzeContentCompliance({
+      brandGuidelines,
+      websiteContent,
+      url,
+    });
+    
+    return { success: true, result: { url, status: 'success', data: analysis } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+    return { success: false, error: errorMessage, result: { url, status: 'error', error: errorMessage } };
   }
-  
-  if (autoDiscover) {
-    const firstUrl = new URL(urlList[0]);
-    const baseUrl = `${firstUrl.protocol}//${firstUrl.hostname}`;
-    logs.push(`Auto-discovery enabled. Crawling from ${baseUrl}...`);
-    const discoveredLinks = await crawlLinks(urlList[0], baseUrl, logs);
-    const allLinks = new Set([...urlList, ...discoveredLinks]);
-    urlList = Array.from(allLinks);
-    logs.push(`Discovered ${discoveredLinks.length} new links. Total URLs to audit: ${urlList.length}.`);
-  }
-
-  logs.push(`Starting audit for ${urlList.length} URL(s)...`);
-
-  const results: AuditResult[] = [];
-  for (const url of urlList) {
-    try {
-      logs.push(`[${url}]: Fetching content...`);
-      const websiteContent = await fetchWebsiteContent(url);
-      if (!websiteContent) {
-        throw new Error('Could not extract meaningful content from URL.');
-      }
-      logs.push(`[${url}]: Content fetched successfully. Analyzing...`);
-
-      const analysis = await analyzeContentCompliance({
-        brandGuidelines,
-        websiteContent,
-        url,
-      });
-      logs.push(`[${url}]: Analysis complete. Score: ${analysis.complianceScore}%`);
-      results.push({ url, status: 'success' as const, data: analysis });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      logs.push(`[${url}]: Error - ${errorMessage}`);
-      results.push({ url, status: 'error' as const, error: errorMessage });
-    }
-  }
-
-  return { success: true, results, logs };
 }

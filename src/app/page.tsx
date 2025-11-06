@@ -8,10 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload, KeyRound, Search } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound, Search, FileSymlink } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
-import { runAudits, type AuditResult } from './actions';
+import { crawlLinksForAudit, runSingleAudit, type AuditResult } from './actions';
 import * as pdfjs from 'pdfjs-dist';
 import { LiveLogs } from '@/components/live-logs';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -31,6 +31,7 @@ export default function ContentQaPage() {
   const [urls, setUrls] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
   const [autoDiscover, setAutoDiscover] = React.useState(false);
+  const [maxPages, setMaxPages] = React.useState('10');
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
   const [logs, setLogs] = React.useState<string[]>([]);
   const [auditState, setAuditState] = React.useState<AuditState>({
@@ -46,11 +47,13 @@ export default function ContentQaPage() {
       const savedUrls = localStorage.getItem('urls');
       const savedApiKey = localStorage.getItem('apiKey');
       const savedAutoDiscover = localStorage.getItem('autoDiscover');
+      const savedMaxPages = localStorage.getItem('maxPages');
 
       if (savedGuidelines) setBrandGuidelines(savedGuidelines);
       if (savedUrls) setUrls(savedUrls);
       if (savedApiKey) setApiKey(savedApiKey);
       if (savedAutoDiscover) setAutoDiscover(JSON.parse(savedAutoDiscover));
+      if (savedMaxPages) setMaxPages(savedMaxPages);
     } catch (error) {
       console.error('Failed to read from localStorage:', error);
     }
@@ -87,10 +90,23 @@ export default function ContentQaPage() {
       console.error('Failed to save autoDiscover to localStorage:', error);
     }
   }, [autoDiscover]);
+  
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('maxPages', maxPages);
+    } catch (error) {
+      console.error('Failed to save maxPages to localStorage:', error);
+    }
+  }, [maxPages]);
+
 
   React.useEffect(() => {
     setTempGuidelines(brandGuidelines);
   }, [brandGuidelines, isDrawerOpen]);
+
+  const addLog = (message: string) => {
+    setLogs(prev => [...prev, message]);
+  }
 
   const handleRunAudit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -123,26 +139,68 @@ export default function ContentQaPage() {
     setAuditState({ isLoading: true, results: [], error: null });
     setLogs([]);
     
-    setLogs(prev => [...prev, 'Starting audit...']);
+    addLog('Starting audit...');
+    
+    let urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
+        try {
+            const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+            return new URL(fullUrl).toString();
+        } catch { return null; }
+    }).filter(Boolean) as string[];
 
-    const response = await runAudits({ brandGuidelines, urls, apiKey, autoDiscover });
-
-    if (response.success && response.results) {
-      setAuditState({ isLoading: false, results: response.results, error: null });
-       setLogs((prev) => [...prev, ...response.logs, `✅ Audit complete. Analyzed ${response.results.length} URLs.`]);
-      toast({
-        title: 'Audit Complete',
-        description: `Analyzed ${response.results.length} URLs.`,
-      });
-    } else {
-      setAuditState({ isLoading: false, results: [], error: response.error || 'An unexpected error occurred.' });
-      setLogs((prev) => [...prev, ...response.logs, `❌ Audit failed: ${response.error || 'An unexpected error occurred.'}`]);
-      toast({
-        variant: 'destructive',
-        title: 'Audit Failed',
-        description: response.error || 'An unexpected error occurred.',
-      });
+    if (urlList.length === 0) {
+        addLog("Error: Please provide at least one valid URL.");
+        setAuditState({ isLoading: false, results: [], error: "Please provide at least one valid URL." });
+        return;
     }
+
+    if (autoDiscover) {
+        addLog(`Auto-discovery enabled. Crawling from ${urlList[0]}...`);
+        const crawlResult = await crawlLinksForAudit({startUrl: urlList[0]});
+        
+        if (!crawlResult.success || !crawlResult.links) {
+             addLog(`Error crawling for links: ${crawlResult.error}`);
+             setAuditState({ isLoading: false, results: [], error: `Error crawling for links: ${crawlResult.error}` });
+             return;
+        }
+
+        const allLinks = new Set([...urlList, ...crawlResult.links]);
+        urlList = Array.from(allLinks);
+        
+        const limit = parseInt(maxPages, 10);
+        if (!isNaN(limit) && limit > 0 && urlList.length > limit) {
+          addLog(`Discovered ${crawlResult.links.length} new links. Limiting to ${limit} URLs as requested.`);
+          urlList = urlList.slice(0, limit);
+        } else {
+          addLog(`Discovered ${crawlResult.links.length} new links. Total URLs to audit: ${urlList.length}.`);
+        }
+    }
+    
+    addLog(`Found ${urlList.length} total URLs to audit.`);
+
+    const newResults: AuditResult[] = [];
+    for (const url of urlList) {
+        addLog(`[${url}]: Starting analysis...`);
+        const response = await runSingleAudit({ brandGuidelines, url, apiKey });
+        
+        if (response.success && response.result) {
+            newResults.push(response.result);
+            setAuditState(prev => ({ ...prev, results: [...newResults] }));
+            addLog(`[${url}]: ✅ Analysis complete. Score: ${response.result.data?.complianceScore || 'N/A'}%`);
+        } else {
+            const errorResult: AuditResult = { url, status: 'error', error: response.error };
+            newResults.push(errorResult);
+            setAuditState(prev => ({ ...prev, results: [...newResults] }));
+            addLog(`[${url}]: ❌ Audit failed: ${response.error}`);
+        }
+    }
+    
+    setAuditState(prev => ({...prev, isLoading: false }));
+    addLog(`✅ Audit finished. Analyzed ${newResults.length} URLs.`);
+    toast({
+      title: 'Audit Complete',
+      description: `Analyzed ${newResults.length} URLs.`,
+    });
   };
   
   const handleSaveGuidelines = () => {
@@ -251,19 +309,39 @@ export default function ContentQaPage() {
                     />
                     <p className="text-sm text-muted-foreground">Enter one URL per line or separate them with commas.</p>
                   </div>
-                   <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="auto-discover"
-                      checked={autoDiscover}
-                      onCheckedChange={(checked) => setAutoDiscover(checked as boolean)}
-                      disabled={auditState.isLoading}
-                    />
-                    <Label
-                      htmlFor="auto-discover"
-                      className="text-sm font-normal text-muted-foreground"
-                    >
-                      Automatically discover and audit all pages on the first URL's domain.
-                    </Label>
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="auto-discover"
+                        checked={autoDiscover}
+                        onCheckedChange={(checked) => setAutoDiscover(checked as boolean)}
+                        disabled={auditState.isLoading}
+                      />
+                      <Label
+                        htmlFor="auto-discover"
+                        className="text-sm font-normal"
+                      >
+                        Automatically discover and audit all pages on the first URL's domain.
+                      </Label>
+                    </div>
+                    {autoDiscover && (
+                       <div className="space-y-2 pl-6">
+                        <Label htmlFor="max-pages">Max pages to audit</Label>
+                        <div className="relative w-48">
+                          <FileSymlink className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id="max-pages"
+                            type="number"
+                            placeholder="e.g., 10"
+                            className="pl-10"
+                            value={maxPages}
+                            onChange={(e) => setMaxPages(e.target.value)}
+                            disabled={auditState.isLoading}
+                            min="1"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <Button type="submit" disabled={auditState.isLoading}>
                     <Rocket className="w-4 h-4 mr-2" />
