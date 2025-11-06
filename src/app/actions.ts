@@ -58,11 +58,16 @@ async function fetchWebsiteContent(url: string): Promise<string> {
   }
 }
 
-export async function runAudits(values: z.infer<typeof AuditInputSchema>): Promise<{ success: boolean; results?: AuditResult[]; error?: string }> {
+export async function runAudits(
+  values: z.infer<typeof AuditInputSchema>,
+  logCallback: (log: string) => void
+): Promise<{ success: boolean; results?: AuditResult[]; error?: string }> {
   const validation = AuditInputSchema.safeParse(values);
 
   if (!validation.success) {
-    return { success: false, error: validation.error.errors.map(e => e.message).join(', ') };
+    const error = validation.error.errors.map(e => e.message).join(', ');
+    logCallback(`Validation error: ${error}`);
+    return { success: false, error };
   }
 
   const { brandGuidelines, urls, apiKey } = validation.data;
@@ -72,7 +77,9 @@ export async function runAudits(values: z.infer<typeof AuditInputSchema>): Promi
   }
   
   if (!process.env.GEMINI_API_KEY) {
-     return { success: false, error: "Gemini API key is not set. Please provide it." };
+     const error = "Gemini API key is not set. Please provide it.";
+     logCallback(`API Key error: ${error}`);
+     return { success: false, error };
   }
 
   const urlList = urls.split(/[\s,]+/).filter(Boolean).map(url => {
@@ -85,30 +92,36 @@ export async function runAudits(values: z.infer<typeof AuditInputSchema>): Promi
   }).filter(Boolean) as string[];
 
   if (urlList.length === 0) {
-    return { success: false, error: "Please provide at least one valid URL." };
+    const error = "Please provide at least one valid URL.";
+    logCallback(`URL error: ${error}`);
+    return { success: false, error };
   }
+  
+  logCallback(`Starting audit for ${urlList.length} URL(s)...`);
 
-  const auditPromises = urlList.map(async (url): Promise<AuditResult> => {
+  const results: AuditResult[] = [];
+  for (const url of urlList) {
     try {
+      logCallback(`[${url}]: Fetching content...`);
       const websiteContent = await fetchWebsiteContent(url);
       if (!websiteContent) {
         throw new Error('Could not extract meaningful content from URL.');
       }
+      logCallback(`[${url}]: Content fetched successfully. Analyzing...`);
 
       const analysis = await analyzeContentCompliance({
         brandGuidelines,
         websiteContent,
         url,
       });
-
-      return { url, status: 'success' as const, data: analysis };
+      logCallback(`[${url}]: Analysis complete. Score: ${analysis.complianceScore}%`);
+      results.push({ url, status: 'success' as const, data: analysis });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      return { url, status: 'error' as const, error: errorMessage };
+      logCallback(`[${url}]: Error - ${errorMessage}`);
+      results.push({ url, status: 'error' as const, error: errorMessage });
     }
-  });
-
-  const results = await Promise.all(auditPromises);
+  }
 
   return { success: true, results };
 }

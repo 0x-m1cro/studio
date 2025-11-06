@@ -8,11 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetFooter, SheetClose } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Rocket, Upload, KeyRound } from 'lucide-react';
+import { FileText, Rocket, Upload, KeyRound, Terminal } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { AuditResults } from '@/components/audit-results';
 import { runAudits, type AuditResult } from './actions';
 import * as pdfjs from 'pdfjs-dist';
+import { LiveLogs } from '@/components/live-logs';
 
 // Required for pdfjs-dist
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -29,6 +30,7 @@ export default function ContentQaPage() {
   const [urls, setUrls] = React.useState('');
   const [apiKey, setApiKey] = React.useState('');
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
+  const [logs, setLogs] = React.useState<string[]>([]);
   const [auditState, setAuditState] = React.useState<AuditState>({
     isLoading: false,
     results: [],
@@ -69,17 +71,22 @@ export default function ContentQaPage() {
     }
 
     setAuditState({ isLoading: true, results: [], error: null });
+    setLogs([]);
 
-    const response = await runAudits({ brandGuidelines, urls, apiKey });
+    const response = await runAudits({ brandGuidelines, urls, apiKey }, (log) => {
+      setLogs((prev) => [...prev, log]);
+    });
 
     if (response.success && response.results) {
       setAuditState({ isLoading: false, results: response.results, error: null });
+       setLogs((prev) => [...prev, `✅ Audit complete. Analyzed ${response.results.length} URLs.`]);
       toast({
         title: 'Audit Complete',
         description: `Analyzed ${response.results.length} URLs.`,
       });
     } else {
       setAuditState({ isLoading: false, results: [], error: response.error || 'An unexpected error occurred.' });
+      setLogs((prev) => [...prev, `❌ Audit failed: ${response.error || 'An unexpected error occurred.'}`]);
       toast({
         variant: 'destructive',
         title: 'Audit Failed',
@@ -201,6 +208,10 @@ export default function ContentQaPage() {
                 </form>
               </CardContent>
             </Card>
+            
+            {(auditState.isLoading || logs.length > 0) && (
+              <LiveLogs logs={logs} />
+            )}
 
             <AuditResults
               isLoading={auditState.isLoading}
