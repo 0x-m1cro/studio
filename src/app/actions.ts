@@ -2,7 +2,9 @@
 
 import { analyzeContentCompliance, type AnalyzeContentComplianceOutput } from '@/ai/flows/ai-powered-content-compliance';
 import { z } from 'zod';
-import { chromium } from 'playwright';
+import chromium from '@playwright/browser-chromium';
+import { type Browser } from 'playwright-core';
+
 
 const SingleAuditInputSchema = z.object({
   brandGuidelines: z.string().min(1, 'Brand guidelines are required.'),
@@ -168,9 +170,11 @@ export async function takeScreenshots(
         return { success: true, screenshots: [] };
     }
 
-    let browser;
+    let browser: Browser | null = null;
     try {
-        browser = await chromium.launch();
+        browser = await chromium.launch({
+          executablePath: chromium.executablePath(),
+        });
         const context = await browser.newContext({
             viewport: { width: 1280, height: 800 },
             deviceScaleFactor: 1,
