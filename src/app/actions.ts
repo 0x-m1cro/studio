@@ -2,8 +2,8 @@
 
 import { analyzeContentCompliance, type AnalyzeContentComplianceOutput } from '@/ai/flows/ai-powered-content-compliance';
 import { z } from 'zod';
-import * as chromium from '@playwright/browser-chromium';
-import { type Browser, chromium as playwrightChromium } from 'playwright-core';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 
 const SingleAuditInputSchema = z.object({
@@ -170,28 +170,33 @@ export async function takeScreenshots(
         return { success: true, screenshots: [] };
     }
 
-    let browser: Browser | null = null;
+    let browser = null;
     try {
-        browser = await playwrightChromium.launch({
-          executablePath: chromium.executablePath(),
+        browser = await puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
         });
-        const context = await browser.newContext({
-            viewport: { width: 1280, height: 800 },
-            deviceScaleFactor: 1,
-        });
-        const page = await context.newPage();
-        await page.goto(url, { waitUntil: 'networkidle' });
+
+        const page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+        await page.goto(url, { waitUntil: 'networkidle0' });
 
         const screenshots: Screenshot[] = [];
 
         for (const selector of selectors) {
             try {
-                const element = page.locator(selector).first();
-                const buffer = await element.screenshot();
-                screenshots.push({
-                    selector,
-                    screenshot: buffer.toString('base64'),
-                });
+                const element = await page.$(selector);
+                if (element) {
+                    const buffer = await element.screenshot();
+                    screenshots.push({
+                        selector,
+                        screenshot: buffer.toString('base64'),
+                    });
+                } else {
+                    console.warn(`Could not find element for selector "${selector}" on ${url}`);
+                }
             } catch (e) {
                 console.warn(`Could not take screenshot for selector "${selector}" on ${url}:`, e);
             }
@@ -200,7 +205,7 @@ export async function takeScreenshots(
         return { success: true, screenshots };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during screenshot capture.';
-        console.error("Playwright error:", errorMessage);
+        console.error("Puppeteer error:", errorMessage);
         return { success: false, error: errorMessage };
     } finally {
         if (browser) {
